@@ -43,11 +43,36 @@ export function writeOpenAIResponsesSSE(
     });
 
     for await (const part of parts) handleStreamPart(ctx, part);
+    emitCompletedOutputItems(ctx);
 
     const response = responseObject('completed', ctx.state);
     send(ctx, { type: 'response.completed', sequence_number: ctx.seq, response });
     context.onResponseId?.(response.id);
   });
+}
+
+// Responses clients finalize assistant messages and reasoning from
+// response.output_item.done. Deltas alone do not provide a terminal item
+// snapshot, so every streamed non-tool item needs one before response.completed.
+function emitCompletedOutputItems(ctx: SseContext): void {
+  for (const [index, output] of ctx.state.output.entries()) {
+    if (output.type === 'reasoning') {
+      send(ctx, {
+        type: 'response.output_item.done',
+        sequence_number: ctx.seq,
+        output_index: index,
+        item: reasoningItem(ctx.state, 'completed'),
+      });
+    }
+    if (output.type === 'message') {
+      send(ctx, {
+        type: 'response.output_item.done',
+        sequence_number: ctx.seq,
+        output_index: index,
+        item: messageItem(ctx.state, 'completed'),
+      });
+    }
+  }
 }
 
 function send(ctx: SseContext, value: ResponseStreamEvent): void {
