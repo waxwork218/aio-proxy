@@ -32,11 +32,22 @@ describe('OpenAI Responses egress', () => {
       'response.reasoning_summary_text.delta',
       'response.output_item.added',
       'response.output_text.delta',
+      'response.output_item.done',
+      'response.output_item.done',
       'response.completed',
     ]);
     expect(events[2]).toMatchObject({ delta: 'I should answer.', summary_index: 0 });
     expect(events[4]).toMatchObject({ delta: 'Pong', content_index: 0, logprobs: [] });
-    expect(events[5]?.response).toMatchObject({
+    expect(events[5]?.item).toMatchObject({ type: 'reasoning', status: 'completed' });
+    expect(events[5]).toMatchObject({ sequence_number: 5, output_index: 0 });
+    expect(events[6]?.item).toMatchObject({
+      type: 'message',
+      role: 'assistant',
+      status: 'completed',
+      content: [{ type: 'output_text', text: 'Pong' }],
+    });
+    expect(events[6]).toMatchObject({ sequence_number: 6, output_index: 1 });
+    expect(events[7]?.response).toMatchObject({
       status: 'completed',
       output_text: 'Pong',
       usage: { input_tokens: 3, output_tokens: 4, total_tokens: 7 },
@@ -72,10 +83,16 @@ describe('OpenAI Responses egress', () => {
       'response.created',
       'response.output_item.added',
       'response.reasoning_summary_text.delta',
+      'response.output_item.done',
       'response.completed',
     ]);
     expect(events[2]).toMatchObject({ delta: 'private summary' });
-    expect(events[3]?.response?.output[0]).toMatchObject({
+    expect(events[3]).toMatchObject({
+      sequence_number: 3,
+      output_index: 0,
+      item: { type: 'reasoning', status: 'completed' },
+    });
+    expect(events[4]?.response?.output[0]).toMatchObject({
       type: 'reasoning',
       summary: [{ type: 'summary_text', text: 'private summary' }],
     });
