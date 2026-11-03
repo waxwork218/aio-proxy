@@ -89,6 +89,9 @@ export type AttemptLoopContext<
   readonly logFailure: LogAttemptFailure;
   readonly cooldown: ProviderCooldownStore;
   readonly retryAfterCapMs: number;
+  // Default on. An HTTP 200 Responses stream that reports capacity overload is
+  // a failed attempt, so the loop can try the next provider for this request.
+  readonly failoverOnStreamOverload: boolean;
 };
 
 export type LanguageAttemptLoopContext<TRequest, TContext> = Omit<AttemptLoopContext<TRequest, TContext>, 'adapter'> & {

@@ -71,7 +71,10 @@ export type ProtocolRequestDiagnostic = Readonly<{
 }>;
 
 export type RawRetryFrame = { readonly event?: string; readonly data: string };
-export type RawRetryVerdict = 'hold' | 'commit' | 'retry';
+// `overload` is a failover-eligible stream failure. The pipeline must not
+// replay this provider; it may try the next candidate. `retry` still means
+// rewrite the body and call this same provider again.
+export type RawRetryVerdict = 'hold' | 'commit' | 'retry' | 'overload';
 
 // Lets one protocol adapter own the judgement for a same-protocol raw retry:
 // which buffered frames are still undecided, and how to rewrite the outbound

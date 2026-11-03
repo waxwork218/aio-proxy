@@ -144,6 +144,65 @@ test('retries a normalized response.failed envelope', () => {
   ).toBe('commit');
 });
 
+// ChatGPT returns HTTP 200, then response.failed. createOpenAIStreamFetch stores
+// the original error on response.error. Either the code or the type is enough;
+// a long retry_after must not be treated as a same-provider replay.
+const OVERLOAD_ERROR = {
+  type: 'service_unavailable_error',
+  code: 'server_is_overloaded',
+  message: 'Selected model is at capacity. Please try a different model.',
+  retry_after: 308,
+};
+
+test('classifies a capacity overload as failover, not a same-provider retry', () => {
+  expect(
+    classifyOpenAIResponsesRawRetry({
+      event: 'response.failed',
+      data: JSON.stringify({
+        type: 'response.failed',
+        response: { id: 'resp_1', status: 'failed', error: OVERLOAD_ERROR },
+      }),
+    }),
+  ).toBe('overload');
+  expect(
+    classifyOpenAIResponsesRawRetry({
+      event: 'error',
+      data: JSON.stringify({ type: 'error', error: OVERLOAD_ERROR }),
+    }),
+  ).toBe('overload');
+  expect(
+    classifyOpenAIResponsesRawRetry({
+      event: 'response.failed',
+      data: JSON.stringify({
+        type: 'response.failed',
+        response: {
+          id: 'resp_1',
+          status: 'failed',
+          error: { type: 'error', code: 'server_is_overloaded', message: 'at capacity', retry_after: 308 },
+        },
+      }),
+    }),
+  ).toBe('overload');
+  expect(
+    classifyOpenAIResponsesRawRetry({
+      event: 'error',
+      data: JSON.stringify({
+        type: 'error',
+        error: { type: 'service_unavailable_error', message: 'at capacity' },
+      }),
+    }),
+  ).toBe('overload');
+  expect(
+    classifyOpenAIResponsesRawRetry({
+      event: 'error',
+      data: JSON.stringify({
+        type: 'error',
+        error: { type: 'invalid_request_error', code: 'context_too_large', message: 'too big', retry_after: 308 },
+      }),
+    }),
+  ).toBe('commit');
+});
+
 // The repo's own Responses egress sends response.output_item.added immediately
 // before each delta, so committing on it would forfeit the retry window. The
 // *.added / *.done container frames announce or close an item without carrying

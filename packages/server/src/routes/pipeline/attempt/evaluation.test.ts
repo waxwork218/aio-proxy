@@ -124,6 +124,7 @@ async function harness(rawRequest: Request = inbound()): Promise<Harness> {
     logFailure: () => {},
     cooldown: route.source.cooldown,
     retryAfterCapMs: 30_000,
+    failoverOnStreamOverload: true,
   };
   return {
     ctx,

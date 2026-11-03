@@ -4,7 +4,12 @@ import type { OpenAIResponsesCompactRequest } from '../../../ingress/openai-resp
 import type { OpenAIResponsesRequest } from '../../../ingress/openai-responses/index';
 import type { RawRetryFrame, RawRetryHook, RawRetryVerdict } from '../../adapter';
 import { readRequestText } from '../../request/index';
-import { parseErrorPayload, responsesErrorCode, responsesErrorMessage } from '../error-payload';
+import {
+  isResponsesStreamOverload,
+  parseErrorPayload,
+  responsesErrorCode,
+  responsesErrorMessage,
+} from '../error-payload';
 import { isToolPairingRejection, repairOpenAIResponsesToolPairing } from '../tool-pairing-retry';
 
 type OpenAIResponsesRawRetryContext = { readonly operation?: 'create' | 'compact' };
@@ -86,7 +91,12 @@ export function classifyOpenAIResponsesRawRetry(frame: RawRetryFrame): RawRetryV
   const type = frame.event ?? (typeof payload?.['type'] === 'string' ? payload['type'] : undefined);
   if (type !== undefined && carriesGeneratedOutput(type, payload)) return 'commit';
   if (type === 'error' || type === 'response.failed' || isPlainObject(payload?.['error'])) {
-    return isEncryptedContentRejection(payload) || isToolPairingRejection(payload) ? 'retry' : 'commit';
+    // Same-provider replay repairs a bad body. Capacity overload means the body
+    // was accepted and the upstream is full, so the pipeline should try the
+    // next provider instead of forwarding the 200 or waiting out retry_after.
+    if (isEncryptedContentRejection(payload) || isToolPairingRejection(payload)) return 'retry';
+    if (isResponsesStreamOverload(payload)) return 'overload';
+    return 'commit';
   }
   if (type !== undefined && TERMINAL_EVENTS.has(type)) return 'commit';
   return 'hold';

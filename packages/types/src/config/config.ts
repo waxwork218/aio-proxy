@@ -81,6 +81,12 @@ export const ServerRetrySchema = z.object({
     .max(300_000)
     .default(30_000)
     .describe('Upper bound on an honored 429 Retry-After cooldown, in milliseconds.'),
+  failoverOnStreamOverload: z
+    .boolean()
+    .default(true)
+    .describe(
+      'When an OpenAI Responses stream returns HTTP 200 and then reports capacity overload, try the next provider immediately.',
+    ),
 });
 
 const ServerLoggingAuthoringSchema = ServerLoggingSchema.omit({ dir: true, level: true }).extend({

@@ -132,6 +132,7 @@ function createAttemptLoopContext<TRequest, TContext>(
       logProviderAttemptFailed({ ...logContext, attemptIndex: index, attempt, failureKind, fallback, ...detail }),
     cooldown: source.cooldown,
     retryAfterCapMs: config?.server.retry.retryAfterCapMs ?? 30_000,
+    failoverOnStreamOverload: config?.server.retry.failoverOnStreamOverload ?? true,
   };
 }
 

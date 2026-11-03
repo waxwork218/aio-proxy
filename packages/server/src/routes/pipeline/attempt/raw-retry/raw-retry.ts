@@ -19,7 +19,8 @@ function isAbortFailure(error: unknown): boolean {
 
 export type RawRetryPreflight =
   | { readonly kind: 'commit'; readonly response: Response }
-  | { readonly kind: 'retry'; readonly response: Response; readonly rejection: RawRetryFrame };
+  | { readonly kind: 'retry'; readonly response: Response; readonly rejection: RawRetryFrame }
+  | { readonly kind: 'overload'; readonly response: Response; readonly rejection: RawRetryFrame };
 
 export type RawRetryGuards = {
   readonly signal: AbortSignal;
@@ -73,12 +74,14 @@ export async function preflightRawRetrySse(
   let bufferedBytes = 0;
   let verdict: RawRetryVerdict = 'hold';
   let rejection: RawRetryFrame | undefined;
+  let overload: RawRetryFrame | undefined;
   const parser = createParser({
     onEvent(event) {
       if (verdict !== 'hold') return;
       const frame = event.event === undefined ? { data: event.data } : { event: event.event, data: event.data };
       verdict = classify(frame);
       if (verdict === 'retry') rejection = frame;
+      else if (verdict === 'overload') overload = frame;
     },
   });
   const guard = guardReader(reader, guards);
@@ -105,6 +108,7 @@ export async function preflightRawRetrySse(
         if (bufferedBytes > MAX_PREFLIGHT_REPLAY_BYTES) {
           verdict = 'commit';
           rejection = undefined;
+          overload = undefined;
         }
       }
     }
@@ -122,12 +126,14 @@ export async function preflightRawRetrySse(
   });
   inheritObservedResponse(response, next);
   // `onEvent` assigns through a closure TypeScript does not track, so after the
-  // hold loop both locals look narrower than they are. The rejection frame is
-  // set only alongside a 'retry' verdict, so its presence is the decision.
-  const decided: RawRetryFrame | undefined = rejection;
-  return decided === undefined
+  // hold loop the locals look narrower than they are. A frame is set only
+  // alongside the verdict that captured it, so its presence is the decision.
+  const retryFrame: RawRetryFrame | undefined = rejection;
+  if (retryFrame !== undefined) return { kind: 'retry', response: next, rejection: retryFrame };
+  const overloadFrame: RawRetryFrame | undefined = overload;
+  return overloadFrame === undefined
     ? { kind: 'commit', response: next }
-    : { kind: 'retry', response: next, rejection: decided };
+    : { kind: 'overload', response: next, rejection: overloadFrame };
 }
 
 export async function readBoundedJsonBody(response: Response, guards: RawRetryGuards): Promise<string | undefined> {
@@ -231,6 +237,9 @@ function replayBuffered(
 export type RawInvocationResult = {
   readonly response: Response;
   readonly invocation: { originalTransportStarted: boolean; syntheticGuardianResponse: boolean };
+  // Set when the SSE preflight saw capacity overload and failover is enabled.
+  // The caller tries the next provider; this provider is not invoked again.
+  readonly streamOverload?: boolean;
 };
 
 export type RawRetryResolution<TRequest, TContext> = {
@@ -252,6 +261,8 @@ export type RawRetryResolution<TRequest, TContext> = {
   readonly streamRequested: boolean;
   readonly guards: RawRetryGuards;
   readonly invoke: (request: Request) => Promise<RawInvocationResult>;
+  // Absent means on, matching server.retry.failoverOnStreamOverload.
+  readonly failoverOnStreamOverload?: boolean;
 };
 
 // One replay at most, decided by the adapter. Runs before usage capture so a
@@ -295,6 +306,11 @@ export async function resolveRawRetry<TRequest, TContext>(
     assumeEventStream: true,
   });
   const preflightResult = { ...result, response: preflight.response };
-  if (preflight.kind !== 'retry') return preflightResult;
-  return (await replay(preflight.response, preflight.rejection)) ?? preflightResult;
+  if (preflight.kind === 'retry') return (await replay(preflight.response, preflight.rejection)) ?? preflightResult;
+  // Overload is not a body repair. Leave the same provider alone so the caller
+  // can fail over. With the flag off, the buffered 200 stream is the response.
+  if (preflight.kind === 'overload' && input.failoverOnStreamOverload !== false) {
+    return { ...preflightResult, streamOverload: true };
+  }
+  return preflightResult;
 }
