@@ -10,6 +10,7 @@ const reasons = new Set([
   'not_implemented',
   'previous_response_conflict',
   'rate_limited',
+  'stream_overload',
   'provider_error',
   'bad_gateway',
   'upstream_error',

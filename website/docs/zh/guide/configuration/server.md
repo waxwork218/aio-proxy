@@ -29,6 +29,7 @@ AIO Proxy 的服务本体与安全行为通过配置文件的顶级 `server` 字
     "requestBody": { "maxBytes": 268435456 },
     "retry": {
       "retryAfterCapMs": 30000,
+      "failoverOnStreamOverload": true,
     },
   },
 }
@@ -69,6 +70,7 @@ AIO Proxy 可以作为一个安全的模型网关，防止未经授权的客户�
 ## 限流与重试控制 (`retry`)
 
 - **`retryAfterCapMs`**：当上游提供商返回 HTTP 429 且附带 `Retry-After` 响应头时，AIO Proxy 在冷却该提供商时所能采纳的最大等待毫秒数上限（默认为 `30000` ms 即 30 秒）。避免某些极端上游返回数天的冷却时间导致该 Provider 被永久挂起。
+- **`failoverOnStreamOverload`**：默认为 `true`。OpenAI Responses 流以 HTTP 200 开头，随后用 `response.failed` 报告容量过载（例如 `server_is_overloaded` / `service_unavailable_error`，并带有较长的 `retry_after`）时，立刻改试同一模型的下一个 Provider，而不是先重试当前这个被会话亲和钉住的上游，也不等待完整的 `retry_after`。已经产出内容的成功流不会因此切换。设为 `false` 时，该 200 流会原样交给客户端。若所有候选都过载，最后一个过载流仍交给客户端。
 
 ## 请求容量与正文捕获
 

@@ -157,12 +157,22 @@ test('ignores a leftover server.autoUpdate key', () => {
 });
 
 test('defaults server.retry.retryAfterCapMs', () => {
-  expect(ConfigSchema.parse({ server: {}, providers: {} }).server.retry).toEqual({ retryAfterCapMs: 30_000 });
+  expect(ConfigSchema.parse({ server: {}, providers: {} }).server.retry).toEqual({
+    retryAfterCapMs: 30_000,
+    failoverOnStreamOverload: true,
+  });
 });
 test('accepts a custom retryAfterCapMs', () => {
   expect(ConfigSchema.parse({ server: { retry: { retryAfterCapMs: 5_000 } }, providers: {} }).server.retry).toEqual({
     retryAfterCapMs: 5_000,
+    failoverOnStreamOverload: true,
   });
+});
+test('defaults failoverOnStreamOverload on and accepts turning it off', () => {
+  expect(
+    ConfigSchema.parse({ server: { retry: { failoverOnStreamOverload: false } }, providers: {} }).server.retry
+      .failoverOnStreamOverload,
+  ).toBe(false);
 });
 test('rejects out-of-range retryAfterCapMs', () => {
   expect(ConfigSchema.safeParse({ server: { retry: { retryAfterCapMs: -1 } }, providers: {} }).success).toBe(false);

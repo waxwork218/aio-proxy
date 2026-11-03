@@ -7,7 +7,7 @@ export const defaultServer = {
   requireApiKey: false,
   logging: { enabled: false, retentionDays: 3, level: 'info', captureMaxBytes: 67108864 },
   otel: { destinations: [] },
-  retry: { retryAfterCapMs: 30_000 },
+  retry: { retryAfterCapMs: 30_000, failoverOnStreamOverload: true },
   requestBody: { maxBytes: 268435456 },
 } as const;
 

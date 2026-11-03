@@ -68,6 +68,71 @@ test('commits other SSE errors', async () => {
   expect(preflight.kind).toBe('commit');
 });
 
+const overload =
+  'event: response.failed\ndata: {"type":"response.failed","response":{"id":"resp_overloaded","status":"failed","error":{"type":"service_unavailable_error","code":"server_is_overloaded","message":"Selected model is at capacity. Please try a different model.","retry_after":308}}}\n\n';
+
+test('reports capacity overload without replaying the same provider', async () => {
+  const started = performance.now();
+  const preflight = await preflightRawRetrySse(sse(created + overload), classifyOpenAIResponsesRawRetry, live());
+  expect(preflight.kind).toBe('overload');
+  expect(performance.now() - started).toBeLessThan(1_000);
+  if (preflight.kind === 'overload') {
+    expect(preflight.rejection.data).toContain('server_is_overloaded');
+    expect(preflight.rejection.data).toContain('"retry_after":308');
+  }
+
+  let replays = 0;
+  const result = await resolveRawRetry({
+    hook: { classify: classifyOpenAIResponsesRawRetry, rewrite: async (request) => request },
+    retrySource: new Request('https://example.test', { method: 'POST', body: '{}' }),
+    request: {},
+    context: {},
+    result: {
+      response: sse(created + overload),
+      invocation: { originalTransportStarted: true, syntheticGuardianResponse: false },
+    },
+    streamRequested: true,
+    guards: live(),
+    invoke: async () => {
+      replays += 1;
+      return {
+        response: sse(created + delta),
+        invocation: { originalTransportStarted: true, syntheticGuardianResponse: false },
+      };
+    },
+  });
+  expect(replays).toBe(0);
+  expect(result.streamOverload).toBe(true);
+  expect(performance.now() - started).toBeLessThan(1_000);
+});
+
+test('keeps an overload stream when failover is disabled', async () => {
+  let replays = 0;
+  const result = await resolveRawRetry({
+    hook: { classify: classifyOpenAIResponsesRawRetry, rewrite: async (request) => request },
+    retrySource: new Request('https://example.test', { method: 'POST', body: '{}' }),
+    request: {},
+    context: {},
+    result: {
+      response: sse(created + overload),
+      invocation: { originalTransportStarted: true, syntheticGuardianResponse: false },
+    },
+    streamRequested: true,
+    failoverOnStreamOverload: false,
+    guards: live(),
+    invoke: async () => {
+      replays += 1;
+      return {
+        response: sse(delta),
+        invocation: { originalTransportStarted: true, syntheticGuardianResponse: false },
+      };
+    },
+  });
+  expect(replays).toBe(0);
+  expect(result.streamOverload).toBeUndefined();
+  expect(await result.response.text()).toContain('server_is_overloaded');
+});
+
 test('commits a stream that only ever holds', async () => {
   const preflight = await preflightRawRetrySse(sse(created + itemAdded), classifyOpenAIResponsesRawRetry, live());
   expect(preflight.kind).toBe('commit');

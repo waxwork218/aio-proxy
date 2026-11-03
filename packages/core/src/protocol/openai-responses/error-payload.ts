@@ -72,3 +72,41 @@ function messageFrom(chain: readonly Record<string, unknown>[]): string | undefi
 function stringField(value: Record<string, unknown>, key: string): string | undefined {
   return typeof value[key] === 'string' ? value[key] : undefined;
 }
+
+// Event envelopes use these as their own `type`. They are not the provider
+// error class, so a walk that stopped on them would hide `service_unavailable_error`
+// nested under `response.error`.
+const ENVELOPE_TYPES = new Set(['error', 'response.failed', 'response.incomplete', 'response.cancelled']);
+
+// ChatGPT's Responses backend reports capacity as HTTP 200 plus one of these,
+// often with a multi-minute `retry_after`. Either signal is enough: the code
+// and the type do not always travel together.
+const STREAM_OVERLOAD_CODES = new Set(['server_is_overloaded']);
+const STREAM_OVERLOAD_TYPES = new Set(['service_unavailable_error']);
+
+export function responsesErrorType(payload: Record<string, unknown> | undefined): string | undefined {
+  if (payload === undefined) return undefined;
+  return typeFrom(nestedErrors(payload)) ?? typeFrom(nestedErrors(responseEnvelope(payload)));
+}
+
+export function isResponsesStreamOverload(payload: Record<string, unknown> | undefined): boolean {
+  if (payload === undefined) return false;
+  const code = responsesErrorCode(payload);
+  if (code !== undefined && STREAM_OVERLOAD_CODES.has(code)) return true;
+  const type = responsesErrorType(payload);
+  return type !== undefined && STREAM_OVERLOAD_TYPES.has(type);
+}
+
+function nestedErrors(root: Record<string, unknown> | undefined): readonly Record<string, unknown>[] {
+  if (root === undefined) return [];
+  const nested = root['error'];
+  return isPlainObject(nested) ? errorChain(nested) : [];
+}
+
+function typeFrom(chain: readonly Record<string, unknown>[]): string | undefined {
+  for (const node of chain) {
+    const type = stringField(node, 'type');
+    if (type !== undefined && !ENVELOPE_TYPES.has(type)) return type;
+  }
+  return undefined;
+}

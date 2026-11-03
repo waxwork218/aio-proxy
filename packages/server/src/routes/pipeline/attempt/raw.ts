@@ -103,6 +103,7 @@ export async function completeRawAttempt<TRequest, TContext>(
       streamRequested: ctx.streamRequested,
       guards: { signal: ctx.rawRequest.signal },
       invoke: invokeRaw,
+      failoverOnStreamOverload: ctx.failoverOnStreamOverload,
     });
   } catch (error) {
     // Video credential-strip (and any other rewrite) may own the body on
@@ -121,14 +122,20 @@ export async function completeRawAttempt<TRequest, TContext>(
 
   // Unpinned edits/extensions 404 is source-not-found: the next video-capable
   // provider may own that id. Create and language/image 404s stay terminal.
+  // A 200 Responses stream can still be a failed attempt: capacity overload
+  // arrives as response.failed after the headers. Try the next provider now.
+  // Do not replay this upstream, and do not wait out its retry_after.
+  const streamOverload = final.streamOverload === true;
   const fallback =
-    hasNext && (shouldFallbackStatus(response.status) || shouldFallbackVideoSource404(ctx, response.status));
+    hasNext &&
+    (shouldFallbackStatus(response.status) || shouldFallbackVideoSource404(ctx, response.status) || streamOverload);
   if (fallback || response.status < 200 || response.status >= 400) {
     const cooldownMs = cooldownTtlMs(response.status, response.headers.get('retry-after'), ctx.retryAfterCapMs);
     if (cooldownMs > 0) ctx.cooldown.cool(provider.id, candidate.modelId, cooldownMs);
     warmQuotaOnRefusal(ctx.source, provider, response.status);
     const base = attemptBase(provider, candidate.modelId, startedAt, slot.trace);
-    logFailure(index, attemptLog(base, response.status), 'response', fallback, { response });
+    const errorCode = streamOverload ? 'stream_overload' : undefined;
+    logFailure(index, attemptLog(base, response.status, errorCode), 'response', fallback, { response });
     if (fallback) {
       // Start cancellation before flushing send spans so their body terminal is
       // visible. Do not await a provider cancellation that may never settle.
@@ -137,7 +144,11 @@ export async function completeRawAttempt<TRequest, TContext>(
       } catch {}
     }
     slot.spanRef.current = undefined;
-    ctx.emitter.endAttempt(attemptSpan, observation, failureTerminal(response.status));
+    ctx.emitter.endAttempt(
+      attemptSpan,
+      observation,
+      failureTerminal(response.status, streamOverload ? 'stream_overload' : undefined),
+    );
     if (fallback) {
       return { kind: 'fallback', lastFailure: response };
     }

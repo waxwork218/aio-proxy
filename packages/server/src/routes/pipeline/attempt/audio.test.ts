@@ -72,6 +72,7 @@ function harness<TRequest, TContext>(
       logFailure: () => {},
       cooldown: route.source.cooldown,
       retryAfterCapMs: 30_000,
+      failoverOnStreamOverload: true,
     },
   };
 }

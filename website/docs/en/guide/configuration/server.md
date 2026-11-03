@@ -61,3 +61,8 @@ By design, `config.jsonc` restricts the listening address to the local loopback 
 `server.logging.captureMaxBytes` defaults to 64 MiB and accepts integers from 0 to 64 MiB (`0..67108864`), per hop and direction. Setting it to 0 disables body capture while forwarding and diagnostics continue. Truncated logs retain the total observed `byteLength`, `truncated` and `captureLimitBytes`; omitted bodies use `privacy_policy`, `media_payload` or `capture_limit`. Sensitive or uninspectable bodies remain omitted. Privacy inspection keeps its independent 64 MiB budget, and the Dashboard keeps its existing 1,048,576 code-unit read limit.
 
 Both budgets support hot reload for new requests. A request already started retains its entry configuration snapshot. Parsing, Base64, cloning and retries may occupy several times the request size in memory; raising the limit is not an upstream capacity guarantee.
+
+## Retry (`server.retry`)
+
+- **`retryAfterCapMs`**: upper bound, in milliseconds, on a cooldown taken from an upstream HTTP 429 `Retry-After` header. Default `30000`.
+- **`failoverOnStreamOverload`**: default `true`. When an OpenAI Responses stream returns HTTP 200 and then reports capacity overload (`server_is_overloaded` / `service_unavailable_error`, often with a long `retry_after`), the proxy tries the next provider for that model immediately. It does not replay the affinity-selected upstream first and does not wait out `retry_after`. A 200 stream that already produced output is left alone. Set this to `false` to forward the overload stream to the client. If every candidate is overloaded, the last overload stream is still forwarded.
